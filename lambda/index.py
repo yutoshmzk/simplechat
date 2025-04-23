@@ -77,8 +77,8 @@ def generate_text(api_url, prompt, max_new_tokens=512, temperature=0.7, top_p=0.
 
     start_time = time.time()
     try:
-        # リクエストを送信し、レスポンスを取得 (タイムアウトを60秒に設定)
-        with urllib.request.urlopen(req, timeout=60) as response:
+        # リクエストを送信し、レスポンスを取得 (タイムアウトを600秒に設定)
+        with urllib.request.urlopen(req, timeout=600) as response:
             total_time = time.time() - start_time
             response_body = response.read().decode('utf-8')
             # print(f"レスポンスステータス: {response.status}") # デバッグ用
@@ -109,6 +109,8 @@ def generate_text(api_url, prompt, max_new_tokens=512, temperature=0.7, top_p=0.
         print(f"テキスト生成中に例外発生: {e}")
         return None
 
+# ... existing code ...
+
 if __name__ == "__main__":
     print(f"接続先API URL: {NGROK_URL}")
     if NGROK_URL == "http://localhost:8501" or "your-ngrok-url" in NGROK_URL:
@@ -126,8 +128,11 @@ if __name__ == "__main__":
         if health_status.get("status") == "ok":
             # 2. テキスト生成の実行
             print("\n--- テキスト生成 ---")
-            prompt_text = "AIエンジニアリングについて100文字程度で説明してください。"
-            generation_result = generate_text(NGROK_URL, prompt_text)
+            # ターミナルからメッセージを入力
+            message = input("送信するメッセージを入力してください: ")
+
+            # message 変数をプロンプトとして generate_text 関数を呼び出す
+            generation_result = generate_text(NGROK_URL, message) # 入力された message を使用
 
             if generation_result:
                 print("\n生成結果:")
@@ -145,6 +150,8 @@ if __name__ == "__main__":
 
     else:
         print("ヘルスチェックに失敗しました。APIサーバーが起動しているか、URLが正しいか確認してください。")
+
+# ... (rest of the commented out code remains unchanged) ...
         
 # # lambda/index.py
 # import json

@@ -8,8 +8,8 @@ import os
 # 実行前に、app_original.py を実行して表示される ngrok の URL を設定してください。
 # 例: export NGROK_URL="https://your-ngrok-url.ngrok.io"
 # もしくは、以下の行を直接編集してください。
-# NGROK_URL = "https://your-ngrok-url.ngrok.io"
-NGROK_URL = os.environ.get("NGROK_URL", "http://localhost:8501") # デフォルトはローカル
+NGROK_URL = "https://f57c-34-106-143-228.ngrok-free.app"
+# NGROK_URL = os.environ.get("NGROK_URL", "http://localhost:8501") # デフォルトはローカル
 
 def health_check(api_url):
     """

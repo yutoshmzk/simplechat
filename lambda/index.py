@@ -8,7 +8,7 @@ import os
 # 実行前に、app_original.py を実行して表示される ngrok の URL を設定してください。
 # 例: export NGROK_URL="https://your-ngrok-url.ngrok.io"
 # もしくは、以下の行を直接編集してください。
-NGROK_URL = "https://45d9-34-106-143-228.ngrok-free.app" # 実際のURLに更新してください
+NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app" # 実際のURLに更新してください
 # NGROK_URL = os.environ.get("NGROK_URL", "http://localhost:8501") # デフォルトはローカル
 
 # requests 用のセッションを作成 (接続を再利用するため効率的)

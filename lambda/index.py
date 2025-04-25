@@ -3,15 +3,8 @@ import json
 import time
 import os
 
-# FastAPIサーバーのURL (app_original.py で ngrok によって公開される URL)
-# 環境変数 NGROK_URL が設定されていればそれを使用し、なければローカルホストをデフォルトとします。
-# 実行前に、app_original.py を実行して表示される ngrok の URL を設定してください。
-# 例: export NGROK_URL="https://your-ngrok-url.ngrok.io"
-# もしくは、以下の行を直接編集してください。
-NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app" # 実際のURLに更新してください
-# NGROK_URL = os.environ.get("NGROK_URL", "http://localhost:8501") # デフォルトはローカル
+NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app" 
 
-# requests 用のセッションを作成 (接続を再利用するため効率的)
 session = requests.Session()
 
 def health_check(api_url):
@@ -134,21 +127,6 @@ if __name__ == "__main__":
         else:
             print("AI: 応答の取得に失敗しました。")
 
-# ... (rest of the commented out code remains unchanged) ...
-# 
-# import urllib.request
-# import json
-# import time
-# import os
-
-# # FastAPIサーバーのURL (app_original.py で ngrok によって公開される URL)
-# # 環境変数 NGROK_URL が設定されていればそれを使用し、なければローカルホストをデフォルトとします。
-# # 実行前に、app_original.py を実行して表示される ngrok の URL を設定してください。
-# # 例: export NGROK_URL="https://your-ngrok-url.ngrok.io"
-# # もしくは、以下の行を直接編集してください。
-# NGROK_URL = "https://f57c-34-106-143-228.ngrok-free.app"
-# # NGROK_URL = os.environ.get("NGROK_URL", "http://localhost:8501") # デフォルトはローカル
-
 # def health_check(api_url):
 #     """
 #     APIサーバーのヘルスチェックを行います (urllib.request を使用)。
@@ -247,8 +225,6 @@ if __name__ == "__main__":
 #         print(f"テキスト生成中に例外発生: {e}")
 #         return None
 
-# # ... existing code ...
-
 # if __name__ == "__main__":
 #     print(f"接続先API URL: {NGROK_URL}")
 #     if NGROK_URL == "http://localhost:8501" or "your-ngrok-url" in NGROK_URL:
@@ -289,7 +265,6 @@ if __name__ == "__main__":
 #     else:
 #         print("ヘルスチェックに失敗しました。APIサーバーが起動しているか、URLが正しいか確認してください。")
 
-# ... (rest of the commented out code remains unchanged) ...
         
 # # lambda/index.py
 # import json

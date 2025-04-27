@@ -1,131 +1,275 @@
-import requests # urllib.request の代わりに requests をインポート
-import json
-import time
 import os
+import re
+import requests # requests ライブラリをインポート
 
-NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app" 
+NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app"
 
 session = requests.Session()
 
-def health_check(api_url):
-    """
-    APIサーバーのヘルスチェックを行います (requests を使用)。
+# Lambda コンテキストからリージョンを抽出する関数 (Bedrockを使わない場合は不要になる可能性あり)
+def extract_region_from_arn(arn):
+    match = re.search('arn:aws:lambda:([^:]+):', arn)
+    if match:
+        return match.group(1)
+    return "us-east-1"
 
-    Args:
-        api_url (str): APIのベースURL。
+# グローバル変数 (Bedrockクライアントは不要)
+# bedrock_client = None
 
-    Returns:
-        dict: ヘルスチェックの結果。エラーの場合は None。
-    """
-    url = f"{api_url.rstrip('/')}/health"
-    print(f"ヘルスチェックURL: {url}")
+# モデルID (外部APIを使う場合は不要になる可能性あり)
+# MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
+
+def lambda_handler(event, context):
     try:
-        # GETリクエストを送信 (タイムアウト10秒)
-        response = session.get(url, timeout=10)
-        response.raise_for_status() # ステータスコードが 2xx でない場合に例外を発生させる
-        return response.json() # JSONレスポンスをパースして返す
-    except requests.exceptions.RequestException as e:
-        print(f"ヘルスチェック中に例外発生: {e}")
-        return None
+        # Bedrockクライアント初期化は不要
+        # global bedrock_client
+        # if bedrock_client is None:
+        #     region = extract_region_from_arn(context.invoked_function_arn)
+        #     bedrock_client = boto3.client('bedrock-runtime', region_name=region)
+        #     print(f"Initialized Bedrock client in region: {region}")
 
-def generate_text(api_url, prompt, max_new_tokens=512, temperature=0.7, top_p=0.9, do_sample=True):
-    """
-    APIサーバーにテキスト生成をリクエストします (requests を使用)。
+        print("Received event:", json.dumps(event))
 
-    Args:
-        api_url (str): APIのベースURL。
-        prompt (str): 生成の元となるプロンプト。
-        max_new_tokens (int): 生成する最大トークン数。
-        temperature (float): 温度パラメータ。
-        top_p (float): top-p サンプリングパラメータ。
-        do_sample (bool): サンプリングを行うか。
+        # Cognito認証情報はそのまま利用可能
+        user_info = None
+        if 'requestContext' in event and 'authorizer' in event['requestContext']:
+            user_info = event['requestContext']['authorizer']['claims']
+            print(f"Authenticated user: {user_info.get('email') or user_info.get('cognito:username')}")
 
-    Returns:
-        dict: 生成結果。エラーの場合は None。
-    """
-    url = f"{api_url.rstrip('/')}/generate"
-    payload = {
-        "prompt": prompt,
-        "max_new_tokens": max_new_tokens,
-        "temperature": temperature,
-        "top_p": top_p,
-        "do_sample": do_sample
-    }
+        # リクエストボディの解析
+        body = json.loads(event['body'])
+        message = body['message']
+        conversation_history = body.get('conversationHistory', [])
 
-    print(f"リクエスト送信中...") # リクエストURLの表示はループ外へ移動
-    # print(f"ペイロード: {payload}") # デバッグ用に必要ならコメント解除
+        print("Processing message:", message)
+        # print("Using model:", MODEL_ID) # 外部APIを使うのでコメントアウト
 
-    start_time = time.time()
-    try:
-        # POSTリクエストを送信 (タイムアウト600秒)
-        response = session.post(url, json=payload, timeout=600)
-        total_time = time.time() - start_time
-        response.raise_for_status() # ステータスコードが 2xx でない場合に例外を発生させる
+        # 会話履歴を使用
+        messages = conversation_history.copy()
 
-        result = response.json()
-        # クライアント側で計測したリクエスト時間を追加
-        result["total_request_time"] = total_time
-        return result
+        # ユーザーメッセージを追加
+        messages.append({
+            "role": "user",
+            "content": message
+        })
 
-    except requests.exceptions.Timeout:
-        total_time = time.time() - start_time
-        print(f"タイムアウト発生 ({(total_time):.2f}秒経過)")
-        return None
-    except requests.exceptions.RequestException as e:
-        total_time = time.time() - start_time
-        print(f"リクエスト中に例外発生: {e}")
-        # エラーレスポンスの内容を表示しようと試みる
-        if e.response is not None:
-            print(f"エラーレスポンス ({e.response.status_code}): {e.response.text}")
-        return None
+        # --- 外部API呼び出しに変更 ---
+        external_api_url = f"{NGROK_URL.rstrip('/')}/generate"
+        # 外部APIに送信するペイロードを構築
+        # APIの仕様に合わせて調整が必要
+        # 例: コメントアウトされていたクライアントコードを参考に
+        payload = {
+            "prompt": message,
+            # 必要であれば会話履歴や他のパラメータも追加
+            # "conversation_history": messages[:-1], # 最後のユーザーメッセージを除く履歴
+            "max_new_tokens": 512,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "do_sample": True
+        }
 
-if __name__ == "__main__":
-    print(f"接続先API URL: {NGROK_URL}")
-    if NGROK_URL == "http://localhost:8501" or "your-ngrok-url" in NGROK_URL:
-        print("\n警告: NGROK_URLがデフォルトまたはプレースホルダーのままです。")
-        print("app_original.py を実行して表示される正しい ngrok URL を設定してください。")
-        print("環境変数 'NGROK_URL' を設定するか、このスクリプト内の NGROK_URL 変数を直接編集してください。\n")
+        print(f"Calling external API: {external_api_url}")
+        print(f"Payload: {json.dumps(payload)}")
 
-    # 1. 起動時にヘルスチェックを実行
-    print("\n--- ヘルスチェック ---")
-    health_status = health_check(NGROK_URL)
-
-    if not health_status or health_status.get("status") != "ok":
-        print("ヘルスチェックに失敗しました。サーバーが起動していないか、モデルが利用可能でない可能性があります。")
-        print("スクリプトを終了します。")
-        exit() # ヘルスチェック失敗時は終了
-
-    print(f"ヘルスチェック成功: モデル '{health_status.get('model', 'N/A')}' が利用可能です。")
-    print("\n--- チャット開始 ---")
-    print("メッセージを入力してください ('quit' または 'exit' で終了)")
-
-    while True:
-        # ユーザーからの入力を受け取る
         try:
-            message = input("あなた: ")
-        except EOFError: # Ctrl+D などで入力が終了した場合
-            print("\n終了します。")
-            break
+            # POSTリクエストを送信 (タイムアウトを設定)
+            response = session.post(external_api_url, json=payload, timeout=60) # 60秒タイムアウト
+            response.raise_for_status() # HTTPエラーがあれば例外発生
 
-        # 終了コマンドのチェック
-        if message.lower() in ["quit", "exit"]:
-            print("終了します。")
-            break
+            # レスポンスを解析 (外部APIのレスポンス形式に合わせる)
+            response_data = response.json()
+            print("External API response:", json.dumps(response_data))
 
-        if not message: # 空の入力は無視
-            continue
+            # 外部APIからの応答を取得 (APIの仕様に合わせてキーを調整)
+            # 例: 'generated_text' というキーで応答が返ってくると仮定
+            assistant_response = response_data.get('generated_text', 'No response from external API')
+            if not assistant_response:
+                 assistant_response = 'Received empty response from external API'
 
-        # テキスト生成リクエストを送信
-        generation_result = generate_text(NGROK_URL, message)
 
-        # 結果を表示
-        if generation_result:
-            print(f"AI: {generation_result.get('generated_text', '応答がありませんでした。')}")
-            # 時間情報も表示する場合 (コメントアウト解除)
-            # print(f"  (サーバー処理時間: {generation_result.get('response_time', 0):.2f}s, "
-            #       f"総リクエスト時間: {generation_result.get('total_request_time', 0):.2f}s)")
-        else:
-            print("AI: 応答の取得に失敗しました。")
+        except requests.exceptions.Timeout:
+            print(f"Error: Request to {external_api_url} timed out.")
+            raise Exception("External API request timed out.")
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling external API: {e}")
+            # エラーレスポンスの内容を表示しようと試みる
+            error_details = ""
+            if e.response is not None:
+                try:
+                    error_details = e.response.json()
+                except json.JSONDecodeError:
+                    error_details = e.response.text
+                print(f"External API error response ({e.response.status_code}): {error_details}")
+            raise Exception(f"Failed to call external API: {e}")
+        # --- 外部API呼び出しここまで ---
+
+        # アシスタントの応答を会話履歴に追加
+        messages.append({
+            "role": "assistant",
+            "content": assistant_response
+        })
+
+        # 成功レスポンスの返却
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                "Access-Control-Allow-Methods": "OPTIONS,POST"
+            },
+            "body": json.dumps({
+                "success": True,
+                "response": assistant_response,
+                "conversationHistory": messages
+            })
+        }
+
+    except Exception as error:
+        print("Error:", str(error))
+
+        return {
+            "statusCode": 500,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                "Access-Control-Allow-Methods": "OPTIONS,POST"
+            },
+            "body": json.dumps({
+                "success": False,
+                "error": str(error)
+            })
+        }
+        
+# import requests # urllib.request の代わりに requests をインポート
+# import json
+# import time
+# import os
+
+# NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app" 
+
+# session = requests.Session()
+
+# def health_check(api_url):
+#     """
+#     APIサーバーのヘルスチェックを行います (requests を使用)。
+
+#     Args:
+#         api_url (str): APIのベースURL。
+
+#     Returns:
+#         dict: ヘルスチェックの結果。エラーの場合は None。
+#     """
+#     url = f"{api_url.rstrip('/')}/health"
+#     print(f"ヘルスチェックURL: {url}")
+#     try:
+#         # GETリクエストを送信 (タイムアウト10秒)
+#         response = session.get(url, timeout=10)
+#         response.raise_for_status() # ステータスコードが 2xx でない場合に例外を発生させる
+#         return response.json() # JSONレスポンスをパースして返す
+#     except requests.exceptions.RequestException as e:
+#         print(f"ヘルスチェック中に例外発生: {e}")
+#         return None
+
+# def generate_text(api_url, prompt, max_new_tokens=512, temperature=0.7, top_p=0.9, do_sample=True):
+#     """
+#     APIサーバーにテキスト生成をリクエストします (requests を使用)。
+
+#     Args:
+#         api_url (str): APIのベースURL。
+#         prompt (str): 生成の元となるプロンプト。
+#         max_new_tokens (int): 生成する最大トークン数。
+#         temperature (float): 温度パラメータ。
+#         top_p (float): top-p サンプリングパラメータ。
+#         do_sample (bool): サンプリングを行うか。
+
+#     Returns:
+#         dict: 生成結果。エラーの場合は None。
+#     """
+#     url = f"{api_url.rstrip('/')}/generate"
+#     payload = {
+#         "prompt": prompt,
+#         "max_new_tokens": max_new_tokens,
+#         "temperature": temperature,
+#         "top_p": top_p,
+#         "do_sample": do_sample
+#     }
+
+#     print(f"リクエスト送信中...") # リクエストURLの表示はループ外へ移動
+#     # print(f"ペイロード: {payload}") # デバッグ用に必要ならコメント解除
+
+#     start_time = time.time()
+#     try:
+#         # POSTリクエストを送信 (タイムアウト600秒)
+#         response = session.post(url, json=payload, timeout=600)
+#         total_time = time.time() - start_time
+#         response.raise_for_status() # ステータスコードが 2xx でない場合に例外を発生させる
+
+#         result = response.json()
+#         # クライアント側で計測したリクエスト時間を追加
+#         result["total_request_time"] = total_time
+#         return result
+
+#     except requests.exceptions.Timeout:
+#         total_time = time.time() - start_time
+#         print(f"タイムアウト発生 ({(total_time):.2f}秒経過)")
+#         return None
+#     except requests.exceptions.RequestException as e:
+#         total_time = time.time() - start_time
+#         print(f"リクエスト中に例外発生: {e}")
+#         # エラーレスポンスの内容を表示しようと試みる
+#         if e.response is not None:
+#             print(f"エラーレスポンス ({e.response.status_code}): {e.response.text}")
+#         return None
+
+# if __name__ == "__main__":
+#     print(f"接続先API URL: {NGROK_URL}")
+#     if NGROK_URL == "http://localhost:8501" or "your-ngrok-url" in NGROK_URL:
+#         print("\n警告: NGROK_URLがデフォルトまたはプレースホルダーのままです。")
+#         print("app_original.py を実行して表示される正しい ngrok URL を設定してください。")
+#         print("環境変数 'NGROK_URL' を設定するか、このスクリプト内の NGROK_URL 変数を直接編集してください。\n")
+
+#     # 1. 起動時にヘルスチェックを実行
+#     print("\n--- ヘルスチェック ---")
+#     health_status = health_check(NGROK_URL)
+
+#     if not health_status or health_status.get("status") != "ok":
+#         print("ヘルスチェックに失敗しました。サーバーが起動していないか、モデルが利用可能でない可能性があります。")
+#         print("スクリプトを終了します。")
+#         exit() # ヘルスチェック失敗時は終了
+
+#     print(f"ヘルスチェック成功: モデル '{health_status.get('model', 'N/A')}' が利用可能です。")
+#     print("\n--- チャット開始 ---")
+#     print("メッセージを入力してください ('quit' または 'exit' で終了)")
+
+#     while True:
+#         # ユーザーからの入力を受け取る
+#         try:
+#             message = input("あなた: ")
+#         except EOFError: # Ctrl+D などで入力が終了した場合
+#             print("\n終了します。")
+#             break
+
+#         # 終了コマンドのチェック
+#         if message.lower() in ["quit", "exit"]:
+#             print("終了します。")
+#             break
+
+#         if not message: # 空の入力は無視
+#             continue
+
+#         # テキスト生成リクエストを送信
+#         generation_result = generate_text(NGROK_URL, message)
+
+#         # 結果を表示
+#         if generation_result:
+#             print(f"AI: {generation_result.get('generated_text', '応答がありませんでした。')}")
+#             # 時間情報も表示する場合 (コメントアウト解除)
+#             # print(f"  (サーバー処理時間: {generation_result.get('response_time', 0):.2f}s, "
+#             #       f"総リクエスト時間: {generation_result.get('total_request_time', 0):.2f}s)")
+#         else:
+#             print("AI: 応答の取得に失敗しました。")
 
 # def health_check(api_url):
 #     """

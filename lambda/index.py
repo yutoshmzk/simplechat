@@ -5,7 +5,7 @@ import urllib.request # urllib.request をインポート
 import json # json ライブラリをインポート (必須)
 import socket # タイムアウト用にインポート
 
-NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app"
+NGROK_URL = "https://8f76-34-16-206-248.ngrok-free.app"
 
 # session = requests.Session() # requests.Session は使用しない
 

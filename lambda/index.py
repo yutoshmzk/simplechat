@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import requests # requests ライブラリをインポート
 
 NGROK_URL = "https://8f76-34-16-206-248.ngrok-free.app"

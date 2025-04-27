@@ -2,7 +2,7 @@ import os
 import re
 import requests # requests ライブラリをインポート
 
-NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app"
+NGROK_URL = "https://8f76-34-16-206-248.ngrok-free.app"
 
 session = requests.Session()
 

@@ -1,68 +1,46 @@
 import os
 import re
-import json
-import requests # requests ライブラリをインポート
+# import requests # requests ライブラリは使用しない
+import urllib.request # urllib.request をインポート
+import json # json ライブラリをインポート (必須)
+import socket # タイムアウト用にインポート
 
-NGROK_URL = "https://8f76-34-16-206-248.ngrok-free.app"
+NGROK_URL = "https://225c-35-203-187-174.ngrok-free.app"
 
-session = requests.Session()
+# session = requests.Session() # requests.Session は使用しない
 
-# Lambda コンテキストからリージョンを抽出する関数 (Bedrockを使わない場合は不要になる可能性あり)
+# Lambda コンテキストからリージョンを抽出する関数 (変更なし)
 def extract_region_from_arn(arn):
     match = re.search('arn:aws:lambda:([^:]+):', arn)
     if match:
         return match.group(1)
     return "us-east-1"
 
-# グローバル変数 (Bedrockクライアントは不要)
-# bedrock_client = None
-
-# モデルID (外部APIを使う場合は不要になる可能性あり)
-# MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
-
 def lambda_handler(event, context):
     try:
-        # Bedrockクライアント初期化は不要
-        # global bedrock_client
-        # if bedrock_client is None:
-        #     region = extract_region_from_arn(context.invoked_function_arn)
-        #     bedrock_client = boto3.client('bedrock-runtime', region_name=region)
-        #     print(f"Initialized Bedrock client in region: {region}")
-
         print("Received event:", json.dumps(event))
 
-        # Cognito認証情報はそのまま利用可能
         user_info = None
         if 'requestContext' in event and 'authorizer' in event['requestContext']:
             user_info = event['requestContext']['authorizer']['claims']
             print(f"Authenticated user: {user_info.get('email') or user_info.get('cognito:username')}")
 
-        # リクエストボディの解析
         body = json.loads(event['body'])
         message = body['message']
         conversation_history = body.get('conversationHistory', [])
 
         print("Processing message:", message)
-        # print("Using model:", MODEL_ID) # 外部APIを使うのでコメントアウト
 
-        # 会話履歴を使用
         messages = conversation_history.copy()
-
-        # ユーザーメッセージを追加
         messages.append({
             "role": "user",
             "content": message
         })
 
-        # --- 外部API呼び出しに変更 ---
+        # --- 外部API呼び出し (urllib.request を使用) ---
         external_api_url = f"{NGROK_URL.rstrip('/')}/generate"
-        # 外部APIに送信するペイロードを構築
-        # APIの仕様に合わせて調整が必要
-        # 例: コメントアウトされていたクライアントコードを参考に
         payload = {
             "prompt": message,
-            # 必要であれば会話履歴や他のパラメータも追加
-            # "conversation_history": messages[:-1], # 最後のユーザーメッセージを除く履歴
             "max_new_tokens": 512,
             "temperature": 0.7,
             "top_p": 0.9,
@@ -72,47 +50,78 @@ def lambda_handler(event, context):
         print(f"Calling external API: {external_api_url}")
         print(f"Payload: {json.dumps(payload)}")
 
+        # ペイロードをJSON文字列に変換し、UTF-8でエンコード
+        data = json.dumps(payload).encode('utf-8')
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+
+        # POSTリクエストを作成
+        req = urllib.request.Request(external_api_url, data=data, headers=headers, method='POST')
+
+        assistant_response = 'Error: Could not get response from external API.' # デフォルトのエラーメッセージ
+
         try:
-            # POSTリクエストを送信 (タイムアウトを設定)
-            response = session.post(external_api_url, json=payload, timeout=60) # 60秒タイムアウト
-            response.raise_for_status() # HTTPエラーがあれば例外発生
+            # リクエストを送信 (タイムアウトを60秒に設定)
+            with urllib.request.urlopen(req, timeout=60) as response:
+                if response.status == 200:
+                    response_body = response.read().decode('utf-8')
+                    response_data = json.loads(response_body)
+                    print("External API response:", json.dumps(response_data))
+                    assistant_response = response_data.get('generated_text', 'No response text found in API result')
+                    if not assistant_response:
+                        assistant_response = 'Received empty response from external API'
+                else:
+                    print(f"Error: External API returned status code {response.status}")
+                    # エラーレスポンスのボディを読み取る試み
+                    try:
+                        error_body = response.read().decode('utf-8')
+                        print(f"Error body: {error_body}")
+                        assistant_response = f"Error: API returned status {response.status}. Body: {error_body[:200]}" # エラー内容を一部含める
+                    except Exception as read_err:
+                        print(f"Could not read error body: {read_err}")
+                        assistant_response = f"Error: API returned status {response.status}"
 
-            # レスポンスを解析 (外部APIのレスポンス形式に合わせる)
-            response_data = response.json()
-            print("External API response:", json.dumps(response_data))
-
-            # 外部APIからの応答を取得 (APIの仕様に合わせてキーを調整)
-            # 例: 'generated_text' というキーで応答が返ってくると仮定
-            assistant_response = response_data.get('generated_text', 'No response from external API')
-            if not assistant_response:
-                 assistant_response = 'Received empty response from external API'
-
-
-        except requests.exceptions.Timeout:
+        except socket.timeout:
             print(f"Error: Request to {external_api_url} timed out.")
-            raise Exception("External API request timed out.")
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling external API: {e}")
-            # エラーレスポンスの内容を表示しようと試みる
-            error_details = ""
-            if e.response is not None:
-                try:
-                    error_details = e.response.json()
-                except json.JSONDecodeError:
-                    error_details = e.response.text
-                print(f"External API error response ({e.response.status_code}): {error_details}")
-            raise Exception(f"Failed to call external API: {e}")
+            assistant_response = "Error: External API request timed out."
+            # タイムアウトの場合もエラーとして処理を続けるか、例外を再発生させるか選択
+            # raise Exception("External API request timed out.") # ここで処理を中断する場合
+        except urllib.error.HTTPError as e:
+            # HTTPエラー (4xx, 5xx)
+            print(f"Error calling external API (HTTPError): {e.code} {e.reason}")
+            try:
+                error_body = e.read().decode('utf-8')
+                print(f"Error body: {error_body}")
+                assistant_response = f"Error: API returned status {e.code}. Body: {error_body[:200]}"
+            except Exception as read_err:
+                print(f"Could not read error body: {read_err}")
+                assistant_response = f"Error: API returned status {e.code} {e.reason}"
+            # raise Exception(f"Failed to call external API: {e}") # ここで処理を中断する場合
+        except urllib.error.URLError as e:
+            # URL関連のエラー (接続不可など)
+            print(f"Error calling external API (URLError): {e.reason}")
+            assistant_response = f"Error: Could not connect to external API. Reason: {e.reason}"
+            # raise Exception(f"Failed to call external API: {e}") # ここで処理を中断する場合
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON response from external API: {e}")
+            assistant_response = "Error: Could not decode the response from the external API."
+            # raise Exception("Failed to decode external API response.") # ここで処理を中断する場合
+        except Exception as e: # その他の予期せぬエラー
+             print(f"An unexpected error occurred during API call: {e}")
+             assistant_response = f"An unexpected error occurred: {e}"
+             # raise # 予期せぬエラーは再発生させるのが良い場合も
+
         # --- 外部API呼び出しここまで ---
 
-        # アシスタントの応答を会話履歴に追加
         messages.append({
             "role": "assistant",
             "content": assistant_response
         })
 
-        # 成功レスポンスの返却
         return {
-            "statusCode": 200,
+            "statusCode": 200, # エラーが発生してもAPI Gatewayには200を返し、エラー内容はbodyに含める
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -120,15 +129,15 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Methods": "OPTIONS,POST"
             },
             "body": json.dumps({
-                "success": True,
+                "success": True, # Lambda関数自体の実行は成功したとみなす
                 "response": assistant_response,
                 "conversationHistory": messages
             })
         }
 
     except Exception as error:
-        print("Error:", str(error))
-
+        # Lambdaハンドラ自体の大きなエラー (ボディのパース失敗など)
+        print("Lambda Handler Error:", str(error))
         return {
             "statusCode": 500,
             "headers": {
@@ -139,9 +148,10 @@ def lambda_handler(event, context):
             },
             "body": json.dumps({
                 "success": False,
-                "error": str(error)
+                "error": f"Lambda handler failed: {str(error)}"
             })
         }
+
         
 # import requests # urllib.request の代わりに requests をインポート
 # import json
